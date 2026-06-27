@@ -1,5 +1,6 @@
 module.exports = (err, req, res, _next) => {
-  console.error(`[${new Date().toISOString()}]`, err);
+  // 输出完整错误堆栈（包括 SQL 错误）
+  console.error(`[${new Date().toISOString()}]`, err.stack || err);
 
   if (err.type === 'entity.parse.failed') {
     return res.status(400).json({ code: 400, message: '请求体JSON解析失败', data: null });
