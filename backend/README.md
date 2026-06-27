@@ -1,0 +1,737 @@
+# 电商销售数据智能分析平台 - 接口对接文档
+
+> 本文档供 **算法同学** 和 **前端同学** 对接使用。
+
+---
+
+## 一、数据库信息
+
+| 项目 | 值 |
+|------|-----|
+| 数据库名 | `ecommerce_analysis` |
+| 字符集 | `utf8mb4` |
+| 建表 SQL | `src/sql/schema.sql` |
+
+建表 DDL 在项目 `src/sql/schema.sql` 中，执行后自动创建以下内容。
+
+---
+
+## 二、给算法同学 — 数据表与计算契约
+
+### 2.1 整体流程
+
+```
+后端创建任务 (status=pending)
+    → 算法侧轮询发现 pending 任务
+    → 算法侧更新 status=running
+    → 算法侧查询输入视图，执行计算
+    → 算法侧批量写入结果表
+    → 算法侧更新 status=completed (或 failed)
+    → 前端查询结果
+```
+
+---
+
+### 2.2 RFM 用户分群
+
+#### 输入数据
+
+直接查询视图 `v_rfm_input`，或按时间段查询：
+
+```sql
+SELECT
+    o.user_id,
+    DATEDIFF('2025-12-31', MAX(o.order_date)) AS recency,
+    COUNT(DISTINCT o.order_id)                  AS frequency,
+    SUM(o.total_amount)                         AS monetary
+FROM orders o
+WHERE o.order_status = 'completed'
+  AND o.order_date BETWEEN '2025-01-01' AND '2025-12-31'
+GROUP BY o.user_id;
+```
+
+#### 任务管理
+
+轮询任务表 `rfm_compute_tasks`：
+
+```sql
+-- 查找待处理任务
+SELECT * FROM rfm_compute_tasks WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1;
+
+-- 开始计算
+UPDATE rfm_compute_tasks SET status = 'running', started_at = NOW() WHERE batch_uuid = ?;
+
+-- 计算完成
+UPDATE rfm_compute_tasks SET status = 'completed', user_count = ?, completed_at = NOW() WHERE batch_uuid = ?;
+
+-- 计算失败
+UPDATE rfm_compute_tasks SET status = 'failed', completed_at = NOW() WHERE batch_uuid = ?;
+```
+
+任务参数从 `params` 字段读取（JSON格式），包含 `startDate`, `endDate`, `recencyBaseDate` 等。
+
+#### 写入结果
+
+写入 `rfm_results` 表：
+
+```sql
+INSERT INTO rfm_results
+  (user_id, recency, frequency, monetary, r_score, f_score, m_score, rfm_segment, rfm_group, compute_batch)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| user_id | BIGINT | 用户ID |
+| recency | INT | 最近消费距今天数 |
+| frequency | INT | 消费频次（订单数） |
+| monetary | DECIMAL(14,2) | 消费总金额 |
+| r_score | INT | R评分 1-5（5最好）|
+| f_score | INT | F评分 1-5（5最好）|
+| m_score | INT | M评分 1-5（5最好）|
+| rfm_segment | VARCHAR(30) | 分层标签（如"重要价值客户"）|
+| rfm_group | VARCHAR(10) | RFM组合（如"555"）|
+| compute_batch | VARCHAR(36) | 批次UUID（即 batch_uuid） |
+
+---
+
+### 2.3 关联规则（商品推荐）
+
+#### 输入数据
+
+查询视图 `v_association_input`（购物篮格式）：
+
+```sql
+SELECT o.order_id, o.product_id, p.product_name, p.category
+FROM orders o
+JOIN products p ON o.product_id = p.product_id
+WHERE o.order_status = 'completed'
+  AND o.order_date BETWEEN '2025-01-01' AND '2025-12-31'
+ORDER BY o.order_id;
+```
+
+> 每个 order_id 对应一个购物篮，包含该订单下的所有商品。算法同学需按 order_id 分组构建 transactions。
+
+#### 任务管理
+
+操作 `association_tasks` 表，流程同上：
+
+```sql
+SELECT * FROM association_tasks WHERE status = 'pending' LIMIT 1;
+UPDATE association_tasks SET status = 'running', started_at = NOW() WHERE batch_uuid = ?;
+UPDATE association_tasks SET status = 'completed', total_rules = ?, completed_at = NOW() WHERE batch_uuid = ?;
+```
+
+任务参数 `params` 包含 `startDate`, `endDate`, `minSupport`, `minConfidence`, `minLift`, `maxLength` 等。
+
+#### 写入结果
+
+写入 `association_rules` 表：
+
+```sql
+INSERT INTO association_rules
+  (antecedent, consequent, antecedent_names, consequent_names,
+   support, confidence, lift, rule_type, compute_batch)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| antecedent | VARCHAR(500) | 前件商品ID，JSON数组 `'["P001","P002"]'` |
+| consequent | VARCHAR(500) | 后件商品ID，JSON数组 `'["P003"]'` |
+| antecedent_names | VARCHAR(800) | 前件商品名称，JSON数组 |
+| consequent_names | VARCHAR(800) | 后件商品名称，JSON数组 |
+| support | DECIMAL(8,6) | 支持度 |
+| confidence | DECIMAL(8,6) | 置信度 |
+| lift | DECIMAL(10,4) | 提升度 |
+| rule_type | VARCHAR(20) | `product` 或 `category` |
+| compute_batch | VARCHAR(36) | 批次UUID |
+
+---
+
+### 2.4 时间序列预测
+
+#### 输入数据
+
+查询视图 `v_forecast_input`：
+
+```sql
+SELECT o.product_id, p.product_name, o.order_date,
+       SUM(o.quantity) AS daily_quantity, SUM(o.total_amount) AS daily_sales
+FROM orders o
+JOIN products p ON o.product_id = p.product_id
+WHERE o.order_status = 'completed'
+  AND o.order_date BETWEEN '2024-01-01' AND '2025-12-31'
+  AND o.product_id IN (?, ?, ?)   -- 可选：按目标商品筛选
+GROUP BY o.product_id, p.product_name, o.order_date
+ORDER BY o.product_id, o.order_date;
+```
+
+#### 任务管理
+
+操作 `forecast_tasks` 表，流程同上：
+
+```sql
+SELECT * FROM forecast_tasks WHERE status = 'pending' LIMIT 1;
+UPDATE forecast_tasks SET status = 'running', started_at = NOW() WHERE batch_uuid = ?;
+UPDATE forecast_tasks SET status = 'completed', completed_at = NOW() WHERE batch_uuid = ?;
+```
+
+任务参数 `params` 包含 `startDate`, `endDate`, `forecastDays`, `targetProductIds`, `model` 等。
+
+#### 写入结果
+
+写入 `forecast_results` 表：
+
+```sql
+INSERT INTO forecast_results
+  (product_id, product_name, forecast_date, predicted_qty,
+   lower_bound, upper_bound, model_name, compute_batch)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| product_id | BIGINT | 商品ID |
+| product_name | VARCHAR(255) | 商品名称 |
+| forecast_date | DATE | 预测日期 |
+| predicted_qty | INT | 预测销量 |
+| lower_bound | INT | 下置信界（可为NULL）|
+| upper_bound | INT | 上置信界（可为NULL）|
+| model_name | VARCHAR(50) | 模型名称（如 ARIMA、Prophet）|
+| compute_batch | VARCHAR(36) | 批次UUID |
+
+---
+
+## 三、给前端同学 — API 接口规格
+
+### 基础信息
+
+- 接口前缀: `http://localhost:3000/api`
+- 响应格式: `{ code: number, message: string, data: any }`
+- code: 200 成功 / 400 参数错误 / 404 不存在 / 500 服务器错误
+
+---
+
+### 3.1 数据导入
+
+#### POST /api/upload/csv
+
+上传 CSV 文件。
+
+- Content-Type: `multipart/form-data`
+- 字段: `file` (File, 最大50MB)
+
+```json
+// 响应
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "batchId": 1,
+    "fileName": "sales_2025Q1.csv",
+    "totalRows": 15000,
+    "successRows": 14850,
+    "failedRows": 150,
+    "status": "completed",
+    "errors": [{ "row": 23, "reason": "product_id 为空" }]
+  }
+}
+```
+
+**CSV 文件规范**（需和前端约定列名，支持中英文）：
+
+| 列名（英文） | 列名（中文） | 必填 | 说明 |
+|-------------|-------------|------|------|
+| order_id | 订单ID | 是 | |
+| product_id | 商品ID | 是 | 数字 |
+| product_name | 商品名称 | 是 | |
+| category | 品类 | 是 | |
+| unit_price | 单价 | 是 | 正数 |
+| quantity | 数量 | 是 | 正整数 |
+| total_amount | 金额 | 是 | >=0 |
+| user_id | 用户ID | 是 | 数字 |
+| province | 省份 | 是 | |
+| city | 城市 | 否 | |
+| order_date | 订单日期 | 是 | YYYY-MM-DD |
+| order_status | 订单状态 | 否 | 默认 completed |
+
+#### GET /api/upload/history?page=1&pageSize=20
+
+查询历史导入记录。
+
+#### GET /api/upload/history/:batchId
+
+查询某批次的导入详情。
+
+---
+
+### 3.2 核心指标
+
+#### GET /api/dashboard/kpis
+
+```
+GET /api/dashboard/kpis?startDate=2025-01-01&endDate=2025-12-31
+```
+
+```json
+{
+  "code": 200,
+  "data": {
+    "totalSales": 12568000,
+    "totalOrders": 8420,
+    "totalUsers": 3650,
+    "totalProducts": 1280,
+    "totalQuantity": 56300,
+    "avgOrderValue": 1492.64,
+    "compareLastPeriod": {
+      "salesGrowth": 12.5,
+      "orderGrowth": 8.3,
+      "userGrowth": 15.2
+    }
+  }
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| startDate | string | 否 | YYYY-MM-DD |
+| endDate | string | 否 | YYYY-MM-DD |
+
+#### GET /api/dashboard/trend
+
+```
+GET /api/dashboard/trend?startDate=2025-01-01&endDate=2025-06-30&granularity=month
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| startDate | string | 是 | |
+| endDate | string | 是 | |
+| granularity | string | 否 | day / week / month，默认 day |
+
+```json
+{
+  "code": 200,
+  "data": [
+    { "period": "2025-01", "sales": 4560000, "orders": 3200, "users": 1800, "quantity": 18000 },
+    { "period": "2025-02", "sales": 5120000, "orders": 3500, "users": 1950, "quantity": 21000 }
+  ]
+}
+```
+
+---
+
+### 3.3 销售排行
+
+#### GET /api/sales/ranking
+
+```
+GET /api/sales/ranking?rankBy=salesAmount&order=desc&limit=20&category=电子产品&startDate=2025-01-01&endDate=2025-12-31
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| rankBy | string | 否 | salesAmount（销售额）/ salesVolume（销量），默认 salesAmount |
+| order | string | 否 | desc / asc，默认 desc |
+| limit | int | 否 | 返回条数，默认 20，最大 100 |
+| category | string | 否 | 按品类筛选 |
+| startDate | string | 否 | |
+| endDate | string | 否 | |
+
+```json
+{
+  "code": 200,
+  "data": {
+    "rankings": [
+      {
+        "rank": 1,
+        "productId": "P001",
+        "productName": "iPhone 15 Pro",
+        "category": "电子产品",
+        "unitPrice": 8999,
+        "salesVolume": 1250,
+        "salesAmount": 11248750,
+        "sharePercent": 8.95
+      }
+    ],
+    "total": 1280
+  }
+}
+```
+
+---
+
+### 3.4 品类分析
+
+#### GET /api/category/analysis
+
+```
+GET /api/category/analysis?startDate=2025-01-01&endDate=2025-12-31
+```
+
+```json
+{
+  "code": 200,
+  "data": {
+    "categories": [
+      {
+        "category": "电子产品",
+        "salesAmount": 5620000,
+        "salesVolume": 8500,
+        "orderCount": 3200,
+        "productCount": 120,
+        "amountPercent": 44.72,
+        "volumePercent": 15.10
+      }
+    ],
+    "totalSales": 12568000
+  }
+}
+```
+
+#### GET /api/category/trend
+
+```
+GET /api/category/trend?category=电子产品&startDate=2025-01-01&endDate=2025-06-30&granularity=month
+```
+
+```json
+{
+  "code": 200,
+  "data": {
+    "category": "电子产品",
+    "trends": [
+      { "period": "2025-01", "salesAmount": 920000, "salesVolume": 1400 }
+    ]
+  }
+}
+```
+
+---
+
+### 3.5 地域分析
+
+#### GET /api/region/analysis
+
+```
+GET /api/region/analysis?startDate=2025-01-01&endDate=2025-12-31
+```
+
+```json
+{
+  "code": 200,
+  "data": {
+    "regions": [
+      {
+        "province": "广东省",
+        "salesAmount": 3850000,
+        "salesVolume": 15200,
+        "orderCount": 2450,
+        "userCount": 980,
+        "amountPercent": 30.63,
+        "avgOrderValue": 1571.43
+      }
+    ],
+    "totalSales": 12568000
+  }
+}
+```
+
+#### GET /api/region/detail/:province
+
+```
+GET /api/region/detail/广东省?startDate=2025-01-01&endDate=2025-12-31
+```
+
+```json
+{
+  "code": 200,
+  "data": {
+    "province": "广东省",
+    "cities": [
+      { "city": "深圳", "salesAmount": 1800000, "salesVolume": 7200, "orderCount": 1200, "userCount": 480 }
+    ]
+  }
+}
+```
+
+---
+
+### 3.6 RFM 用户分群
+
+#### POST /api/rfm/trigger
+
+创建计算任务。
+
+```json
+// 请求
+{
+  "startDate": "2025-01-01",
+  "endDate": "2025-12-31",
+  "recencyBaseDate": "2025-12-31",
+  "params": { "scoringMethod": "quantile" }
+}
+
+// 响应
+{
+  "code": 200,
+  "data": {
+    "batchUuid": "a1b2c3d4-e5f6-...",
+    "taskId": 3,
+    "status": "pending",
+    "message": "RFM 计算任务已创建，请等待算法侧执行后查询结果"
+  }
+}
+```
+
+#### GET /api/rfm/status/:batchUuid
+
+轮询任务状态。status 为 `completed` 时可查询结果。
+
+```json
+{
+  "code": 200,
+  "data": {
+    "batch_uuid": "a1b2c3d4-...",
+    "status": "completed",
+    "user_count": 3650,
+    "params": { "startDate": "2025-01-01", ... },
+    "started_at": "2025-05-26 10:00:00",
+    "completed_at": "2025-05-26 10:05:00"
+  }
+}
+```
+
+#### GET /api/rfm/result
+
+```
+GET /api/rfm/result?batchUuid=xxx&segment=重要价值客户&page=1&pageSize=20
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| batchUuid | string | 否 | 不传则取最新完成的批次 |
+| segment | string | 否 | 按分层标签筛选 |
+| page | int | 否 | 默认 1 |
+| pageSize | int | 否 | 默认 20 |
+
+```json
+{
+  "code": 200,
+  "data": {
+    "batchUuid": "a1b2c3d4-...",
+    "userCount": 3650,
+    "segments": [
+      { "segment": "重要价值客户", "userCount": 520, "avgMonetary": 8560.50, "percent": 14.25 }
+    ],
+    "users": [
+      {
+        "user_id": "U001",
+        "recency": 3, "frequency": 45, "monetary": 25600,
+        "r_score": 5, "f_score": 5, "m_score": 5,
+        "rfm_segment": "重要价值客户", "rfm_group": "555"
+      }
+    ],
+    "total": 3650, "page": 1, "pageSize": 20
+  }
+}
+```
+
+---
+
+### 3.7 关联规则
+
+#### POST /api/association/trigger
+
+```json
+// 请求
+{
+  "startDate": "2025-01-01",
+  "endDate": "2025-12-31",
+  "params": { "minSupport": 0.01, "minConfidence": 0.3, "minLift": 1.0, "maxLength": 3 }
+}
+
+// 响应
+{
+  "code": 200,
+  "data": {
+    "batchUuid": "xxx",
+    "taskId": 1,
+    "status": "pending",
+    "message": "关联规则计算任务已创建，请等待算法侧执行后查询结果"
+  }
+}
+```
+
+#### GET /api/association/status/:batchUuid
+
+同 RFM 模式，轮询到 `completed` 后查询结果。
+
+#### GET /api/association/result
+
+```
+GET /api/association/result?batchUuid=xxx&sortBy=lift&order=desc&page=1&pageSize=20
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| batchUuid | string | 否 | 不传取最新完成批次 |
+| sortBy | string | 否 | lift / confidence / support，默认 lift |
+| order | string | 否 | desc / asc，默认 desc |
+| page | int | 否 | 默认 1 |
+| pageSize | int | 否 | 默认 20 |
+
+```json
+{
+  "code": 200,
+  "data": {
+    "batchUuid": "xxx",
+    "rules": [
+      {
+        "id": 1,
+        "antecedent": ["P001"],
+        "consequent": ["P003"],
+        "antecedentNames": ["iPhone 15 Pro"],
+        "consequentNames": ["AirPods Pro"],
+        "support": 0.045,
+        "confidence": 0.62,
+        "lift": 3.4,
+        "ruleType": "product"
+      }
+    ],
+    "total": 156,
+    "page": 1,
+    "pageSize": 20
+  }
+}
+```
+
+#### GET /api/association/recommend/:productId
+
+```
+GET /api/association/recommend/P001?batchUuid=xxx&topN=10
+```
+
+```json
+{
+  "code": 200,
+  "data": [
+    {
+      "id": 1,
+      "antecedent": ["P001"],
+      "consequent": ["P003"],
+      "consequentNames": ["AirPods Pro"],
+      "confidence": 0.62,
+      "lift": 3.4
+    }
+  ]
+}
+```
+
+---
+
+### 3.8 时序预测
+
+#### POST /api/forecast/trigger
+
+```json
+// 请求
+{
+  "startDate": "2024-01-01",
+  "endDate": "2025-12-31",
+  "forecastDays": 30,
+  "targetProductIds": ["P001", "P002"],
+  "params": { "model": "prophet" }
+}
+
+// 响应
+{
+  "code": 200,
+  "data": {
+    "batchUuid": "xxx",
+    "taskId": 1,
+    "status": "pending",
+    "message": "预测任务已创建，请等待算法侧执行后查询结果"
+  }
+}
+```
+
+#### GET /api/forecast/status/:batchUuid
+
+同前，轮询到 `completed` 后查询结果。
+
+#### GET /api/forecast/result
+
+```
+GET /api/forecast/result?batchUuid=xxx&productId=P001&page=1&pageSize=100
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| batchUuid | string | 否 | |
+| productId | string | 否 | 按商品筛选 |
+| page | int | 否 | 默认 1 |
+| pageSize | int | 否 | 默认 100 |
+
+```json
+{
+  "code": 200,
+  "data": {
+    "batchUuid": "xxx",
+    "products": [
+      {
+        "productId": "P001",
+        "productName": "iPhone 15 Pro",
+        "modelName": "prophet",
+        "forecasts": [
+          { "date": "2026-01-01", "predictedQty": 85, "lowerBound": 72, "upperBound": 98 },
+          { "date": "2026-01-02", "predictedQty": 92, "lowerBound": 78, "upperBound": 106 }
+        ]
+      }
+    ],
+    "total": 30, "page": 1, "pageSize": 100
+  }
+}
+```
+
+---
+
+## 四、数据库 ER 图（简述）
+
+```
+┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
+│  products   │     │     orders       │     │    users    │
+├─────────────┤     ├──────────────────┤     ├─────────────┤
+│ product_id PK│◄───│ product_id FK    │     │ user_id PK  │
+│ product_name│     │ user_id FK ────────────►│ province    │
+│ category   │     │ order_id         │     │ city        │
+│ unit_price │     │ quantity         │     └─────────────┘
+└─────────────┘     │ unit_price       │
+                    │ total_amount     │
+                    │ order_date       │
+                    │ order_status     │
+                    └──────────────────┘
+
+┌──────────────────┐  ┌──────────────────────┐  ┌──────────────────┐
+│ rfm_compute_tasks│  │    rfm_results       │  │ association_tasks│
+├──────────────────┤  ├──────────────────────┤  ├──────────────────┤
+│ batch_uuid       │  │ user_id              │  │ batch_uuid       │
+│ status           │  │ recency/frequency/   │  │ status           │
+│ params (JSON)    │  │ monetary             │  │ params (JSON)    │
+└──────────────────┘  │ r/f/m_score          │  └──────────────────┘
+                      │ rfm_segment/group    │
+                      │ compute_batch ────────►  ┌──────────────────────┐
+                      └──────────────────────┘  │  association_rules   │
+                                                ├──────────────────────┤
+┌──────────────────┐  ┌──────────────────┐      │ antecedent/consequent│
+│ forecast_tasks   │  │ forecast_results │      │ support/confidence/  │
+├──────────────────┤  ├──────────────────┤      │ lift                 │
+│ batch_uuid       │  │ product_id       │      │ compute_batch ───────┘
+│ status           │  │ forecast_date    │      └──────────────────────┘
+│ params (JSON)    │  │ predicted_qty    │
+└──────────────────┘  │ lower/upper_bound│
+                      │ model_name       │
+                      │ compute_batch ───┘
+                      └──────────────────┘
+'''

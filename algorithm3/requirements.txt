@@ -1,0 +1,13 @@
+<<<<<<< HEAD
+# 电商销售数据智能分析平台 - 关联规则算法模块依赖
+
+pymysql>=1.1.0          # MySQL 数据库连接
+python-dotenv>=1.0.0     # 环境变量配置
+=======
+pymysql==1.1.0
+pandas==2.1.4
+numpy==1.26.0
+mlxtend==0.23.1
+python-dotenv==1.0.0
+sqlalchemy==2.0.23
+>>>>>>> 060a9b060403480af7c8a876efa18fa0af182c05

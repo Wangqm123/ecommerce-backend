@@ -1,0 +1,157 @@
+卷 Windows-SSD 的文件夹 PATH 列表
+卷序列号为 B8E9-DE6D
+C:.
+│  structure.txt
+│  
+├─algorithm1
+│  │  .gitignore
+│  │  config.py
+│  │  holidays_config.py
+│  │  README.md
+│  │  requirements.txt
+│  │  
+│  └─src
+│          db_utils.py
+│          forecast_model.py
+│          logger.py
+│          main.py
+│          mock_impl.py
+│          __init__.py
+│          
+├─algorithm2
+│  │  .gitignore
+│  │  config.py
+│  │  LICENSE
+│  │  main.py
+│  │  README.md
+│  │  requirements.txt
+│  │  rfm_engine.py
+│  │  算法2对接文档.md
+│  │  
+│  └─__pycache__
+│          config.cpython-314.pyc
+│          main.cpython-314.pyc
+│          rfm_engine.cpython-314.pyc
+│          
+├─algorithm3
+│  │  .gitignore
+│  │  generate_sample_data.py
+│  │  init.sql
+│  │  init_db.py
+│  │  README.md
+│  │  requirements.txt
+│  │  run.py
+│  │  start_service.bat
+│  │  
+│  └─src
+│      │  association_algorithm.py
+│      │  config.py
+│      │  csv_importer.py
+│      │  database.py
+│      │  db.py
+│      │  main.py
+│      │  mining.py
+│      │  sample_data.py
+│      │  worker.py
+│      │  
+│      └─sql
+│              schema.sql
+│              
+├─backend
+│  │  .env.example
+│  │  .gitignore
+│  │  .gitignore.backup
+│  │  LICENSE
+│  │  package-lock.json
+│  │  package.json
+│  │  PLAN.md
+│  │  README.md
+│  │  
+│  ├─docs
+│  │      接口对接文档.md
+│  │      
+│  ├─src
+│  │  │  app.js
+│  │  │  server.js
+│  │  │  
+│  │  ├─config
+│  │  │      db.js
+│  │  │      
+│  │  ├─controllers
+│  │  │      association.controller.js
+│  │  │      category.controller.js
+│  │  │      dashboard.controller.js
+│  │  │      forecast.controller.js
+│  │  │      region.controller.js
+│  │  │      rfm.controller.js
+│  │  │      sales.controller.js
+│  │  │      upload.controller.js
+│  │  │      
+│  │  ├─middleware
+│  │  │      errorHandler.js
+│  │  │      upload.js
+│  │  │      
+│  │  ├─routes
+│  │  │      association.routes.js
+│  │  │      category.routes.js
+│  │  │      dashboard.routes.js
+│  │  │      forecast.routes.js
+│  │  │      index.js
+│  │  │      region.routes.js
+│  │  │      rfm.routes.js
+│  │  │      sales.routes.js
+│  │  │      upload.routes.js
+│  │  │      
+│  │  ├─services
+│  │  │      association.service.js
+│  │  │      category.service.js
+│  │  │      dashboard.service.js
+│  │  │      forecast.service.js
+│  │  │      region.service.js
+│  │  │      rfm.service.js
+│  │  │      sales.service.js
+│  │  │      upload.service.js
+│  │  │      
+│  │  ├─sql
+│  │  │      schema.sql
+│  │  │      
+│  │  └─utils
+│  │          csvParser.js
+│  │          response.js
+│  │          validator.js
+│  │          
+│  └─uploads
+│          .gitkeep
+│          
+└─frontend
+    │  .gitignore
+    │  index.html
+    │  LICENSE
+    │  package.json
+    │  README.md
+    │  vite.config.ts
+    │  
+    └─src
+        │  App.vue
+        │  main.ts
+        │  
+        ├─assets
+        │      base.css
+        │      logo.svg
+        │      main.css
+        │      
+        ├─components
+        │  │  HelloWorld.vue
+        │  │  TheWelcome.vue
+        │  │  WelcomeItem.vue
+        │  │  
+        │  └─icons
+        │          IconCommunity.vue
+        │          IconDocumentation.vue
+        │          IconEcosystem.vue
+        │          IconSupport.vue
+        │          IconTooling.vue
+        │          
+        └─views
+                DataPage.vue
+                
