@@ -11,6 +11,7 @@
 import argparse
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -407,8 +408,10 @@ def create_app() -> Flask:
     return app
 
 
-def run_server(port: int = 5000) -> None:
+def run_server(port: int = None) -> None:
     """启动 HTTP 服务 + 后台轮询线程。"""
+    if port is None:
+        port = int(os.getenv("PORT", 5000))
     stop_event = threading.Event()
     poller = threading.Thread(target=_poll_loop, args=(stop_event,), daemon=True)
     poller.start()
@@ -421,17 +424,24 @@ def run_server(port: int = 5000) -> None:
         stop_event.set()
 
 
+# ===================================================================
+# 入口
+# ===================================================================
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="算法2 - RFM 用户分群计算服务")
     parser.add_argument("--once", action="store_true", help="单次处理 pending 任务后退出")
     parser.add_argument("--batch-uuid", type=str, default=None, help="指定处理某个任务")
     parser.add_argument("--server", action="store_true", help="HTTP 服务模式（自带后台轮询）")
-    parser.add_argument("--port", type=int, default=5000, help="HTTP 端口（默认 5000）")
+    parser.add_argument("--port", type=int, default=None, help="HTTP 端口（默认从环境变量 PORT 读取，否则 5000）")
     args = parser.parse_args()
 
     if args.server:
-        run_server(args.port)
+        # 优先使用命令行 --port，若未指定则读取环境变量 PORT，否则默认 5000
+        port = args.port if args.port is not None else int(os.getenv("PORT", 5000))
+        run_server(port)
     elif args.once or args.batch_uuid:
         run_once(args.batch_uuid)
     else:
         run_loop()
+        
