@@ -8,7 +8,6 @@ let poolConfig = {};
 const dbUrl = process.env.MYSQL_URL || process.env.DATABASE_URL;
 
 if (dbUrl) {
-  // 手动解析 URL，避免 mysql2 的 uri 参数可能的问题
   try {
     const url = new URL(dbUrl);
     poolConfig = {
@@ -27,7 +26,6 @@ if (dbUrl) {
     console.log('✅ Parsed database config from MYSQL_URL');
   } catch (err) {
     console.error('❌ Failed to parse MYSQL_URL:', err.message);
-    // 如果解析失败，回退到独立变量
     poolConfig = {
       host: process.env.DB_HOST || '127.0.0.1',
       port: parseInt(process.env.DB_PORT) || 3306,
@@ -44,7 +42,6 @@ if (dbUrl) {
     console.log('⚠️  Using fallback DB config from individual env vars');
   }
 } else {
-  // 没有 URL，使用独立变量
   poolConfig = {
     host: process.env.DB_HOST || '127.0.0.1',
     port: parseInt(process.env.DB_PORT) || 3306,
@@ -63,27 +60,26 @@ if (dbUrl) {
 
 const pool = mysql.createPool(poolConfig);
 
-// 验证 pool 是否有效
 console.log('✅ MySQL connection pool created successfully.');
-console.log('🔍 Pool has execute method?', typeof pool.execute === 'function');
+console.log('🔍 Pool has query method?', typeof pool.query === 'function');
 
 /**
- * 初始化数据库表结构（如果表不存在则自动创建）
+ * 初始化数据库表结构
  */
 async function initDatabase() {
   try {
     const schemaPath = path.join(__dirname, '../sql/schema.sql');
     const schemaSQL = fs.readFileSync(schemaPath, 'utf8');
-    // 分割 SQL 语句（按 ; 分割，但需避免分割字符串中的 ;）
     const statements = schemaSQL.split(';').filter(stmt => stmt.trim().length > 0);
     for (const stmt of statements) {
-      await pool.execute(stmt);
+      await pool.query(stmt); // 改用 query
     }
     console.log('✅ Database schema initialized successfully.');
   } catch (err) {
     console.error('❌ Failed to initialize database schema:', err.message);
-    // 不抛出错误，让应用继续启动（可能已有表）
   }
 }
 
-module.exports = { pool, initDatabase };
+// 直接导出连接池，并附加 initDatabase
+module.exports = pool;
+module.exports.initDatabase = initDatabase;
