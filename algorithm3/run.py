@@ -135,44 +135,65 @@ def cmd_checkdb(args):
 def _poll_loop(stop_event: threading.Event, interval: int = 10):
     """后台轮询线程"""
     logger.info("后台轮询线程启动，间隔=%ds", interval)
+    from src.main import run_once
+    import json
     while not stop_event.is_set():
         try:
-            # 调用原有的 run_once 处理一个 pending 任务
-            # 但 run_once 会自己连接数据库，我们直接调用
-            from src.main import run_once as _run_once
-            # 从数据库获取一个 pending 任务
             db = DatabaseManager(DB_CONFIG)
             db.connect()
             with db.get_cursor() as cursor:
                 cursor.execute(
-                    "SELECT batch_uuid FROM association_tasks "
+                    "SELECT batch_uuid, params FROM association_tasks "
                     "WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
                 )
                 task = cursor.fetchone()
             db.close()
             if task:
                 logger.info("发现 pending 任务 %s，开始处理", task['batch_uuid'])
-                # 调用原有的 run_once 传入参数（但原 run_once 需要 params，我们直接构造）
-                # 更可靠：直接用 src/main 中的 execute_task
-                from src.main import execute_task
+                # 解析参数
+                params = {}
+                if task.get('params'):
+                    try:
+                        params = json.loads(task['params'])
+                    except:
+                        params = {}
+                # 更新状态为 running
                 db = DatabaseManager(DB_CONFIG)
                 db.connect()
-                with db.get_cursor() as cursor:
-                    cursor.execute(
-                        "SELECT * FROM association_tasks WHERE batch_uuid = %s",
+                with db.get_cursor() as cur:
+                    cur.execute(
+                        "UPDATE association_tasks SET status = 'running', started_at = NOW() WHERE batch_uuid = %s",
                         (task['batch_uuid'],)
                     )
-                    full_task = cursor.fetchone()
-                if full_task:
-                    execute_task(db.connection, full_task)
                 db.close()
+                # 执行分析
+                try:
+                    run_once(params)
+                    # 更新为 completed
+                    db = DatabaseManager(DB_CONFIG)
+                    db.connect()
+                    with db.get_cursor() as cur:
+                        cur.execute(
+                            "UPDATE association_tasks SET status = 'completed', completed_at = NOW() WHERE batch_uuid = %s",
+                            (task['batch_uuid'],)
+                        )
+                    db.close()
+                    logger.info("任务 %s 完成", task['batch_uuid'])
+                except Exception as e:
+                    logger.error("任务 %s 执行失败: %s", task['batch_uuid'], e)
+                    db = DatabaseManager(DB_CONFIG)
+                    db.connect()
+                    with db.get_cursor() as cur:
+                        cur.execute(
+                            "UPDATE association_tasks SET status = 'failed', error_message = %s, completed_at = NOW() WHERE batch_uuid = %s",
+                            (str(e), task['batch_uuid'])
+                        )
+                    db.close()
             else:
                 logger.debug("暂无 pending 任务")
         except Exception as e:
             logger.error("轮询异常: %s", e)
         stop_event.wait(interval)
-
-
 def run_http_server(port: int = None):
     """启动 HTTP 服务 + 后台轮询"""
     if port is None:
