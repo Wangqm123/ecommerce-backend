@@ -1,4 +1,6 @@
 const mysql = require('mysql2/promise');
+const fs = require('fs');
+const path = require('path');
 
 let poolConfig = {};
 
@@ -33,4 +35,24 @@ if (dbUrl) {
 }
 
 const pool = mysql.createPool(poolConfig);
-module.exports = pool;
+
+/**
+ * 初始化数据库表结构（如果表不存在则自动创建）
+ */
+async function initDatabase() {
+  try {
+    const schemaPath = path.join(__dirname, '../sql/schema.sql');
+    const schemaSQL = fs.readFileSync(schemaPath, 'utf8');
+    // 分割 SQL 语句（按 ; 分割，但需避免分割字符串中的 ;）
+    const statements = schemaSQL.split(';').filter(stmt => stmt.trim().length > 0);
+    for (const stmt of statements) {
+      await pool.execute(stmt);
+    }
+    console.log('✅ Database schema initialized successfully.');
+  } catch (err) {
+    console.error('❌ Failed to initialize database schema:', err.message);
+    // 不抛出错误，让应用继续启动（可能已有表）
+  }
+}
+
+module.exports = { pool, initDatabase };
