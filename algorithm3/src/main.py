@@ -13,6 +13,7 @@ import json
 import time
 import logging
 import argparse
+import uuid  # 新增，用于生成批次号
 from datetime import datetime
 from typing import Dict, Any
 
@@ -174,9 +175,7 @@ def run_once(params: Dict[str, Any] = None):
     """
     单次运行关联规则分析（不依赖任务队列）
     用于测试或手动触发
-    
-    Args:
-        params: 分析参数
+    现在会写入数据库（生成新批次号）
     """
     logger = logging.getLogger(__name__)
     
@@ -193,7 +192,6 @@ def run_once(params: Dict[str, Any] = None):
     
     logger.info(f"单次运行模式，参数: {params}")
     
-    # 初始化数据库连接
     db_manager = DatabaseManager(DB_CONFIG)
     db_manager.connect()
     task_manager = AssociationTaskManager(db_manager)
@@ -222,10 +220,20 @@ def run_once(params: Dict[str, Any] = None):
             max_length=params.get('maxLength', 3)
         )
         
-        # 输出结果
         logger.info(f"分析完成，共生成 {len(rules)} 条规则")
         
-        # 打印前10条规则
+        # ========== 新增：写入数据库 ==========
+        if rules:
+            batch_uuid = str(uuid.uuid4())
+            # 清理该批次旧数据（如果有）
+            task_manager.clear_old_rules(batch_uuid)
+            inserted = task_manager.batch_insert_rules(rules, batch_uuid, ALGORITHM_CONFIG['max_batch_size'])
+            logger.info(f"成功写入 {inserted} 条规则到数据库，批次号: {batch_uuid}")
+        else:
+            logger.info("没有生成任何规则，跳过写入")
+        # ========== 新增结束 ==========
+        
+        # 输出结果（打印前10条规则）
         print("\n=== Top 10 关联规则 ===")
         for i, rule in enumerate(rules[:10], 1):
             print(f"\n规则 {i}:")
