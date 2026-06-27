@@ -18,7 +18,6 @@ async function getStatus(batchUuid) {
   if (task.params) task.params = typeof task.params === 'string' ? JSON.parse(task.params) : task.params;
   return task;
 }
-
 async function getResult({ batchUuid, sortBy = 'lift', order = 'desc', page = 1, pageSize = 20 } = {}) {
   // 如果未指定批次，从 association_rules 表取最新的 compute_batch
   if (!batchUuid) {
