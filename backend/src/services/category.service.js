@@ -8,7 +8,7 @@ async function getAnalysis(startDate, endDate) {
     params.push(startDate, endDate);
   }
 
-  const [rows] = await pool.execute(
+  const [rows] = await pool.query(
     `SELECT
       p.category,
       SUM(o.quantity)      AS sales_volume,
@@ -47,7 +47,7 @@ async function getTrend(category, startDate, endDate, granularity = 'day') {
     default: format = '%Y-%m-%d'; break;
   }
 
-  const [rows] = await pool.execute(
+  const [rows] = await pool.query(
     `SELECT
       DATE_FORMAT(o.order_date, ?) AS period,
       SUM(o.total_amount) AS sales_amount,

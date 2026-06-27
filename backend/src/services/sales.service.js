@@ -21,14 +21,14 @@ async function getRanking({ rankBy = 'salesAmount', order = 'desc', limit = 20, 
   // 时间段内总销售额（用于占比计算）
   let totalSales = 0;
   if (startDate && endDate) {
-    const [[t]] = await pool.execute(
+    const [[t]] = await pool.query(
       'SELECT SUM(total_amount) AS total FROM orders WHERE order_status = ? AND order_date BETWEEN ? AND ?',
       ['completed', startDate, endDate]
     );
     totalSales = parseFloat(t.total) || 0;
   }
 
-  const [rows] = await pool.execute(
+  const [rows] = await pool.query(
     `SELECT
       o.product_id,
       p.product_name,
@@ -47,7 +47,7 @@ async function getRanking({ rankBy = 'salesAmount', order = 'desc', limit = 20, 
 
   // 如果没有日期范围，用全量总额
   if (!totalSales || totalSales === 0) {
-    const [[t]] = await pool.execute(
+    const [[t]] = await pool.query(
       "SELECT SUM(total_amount) AS total FROM orders WHERE order_status = 'completed'"
     );
     totalSales = parseFloat(t.total) || 0;
@@ -64,7 +64,7 @@ async function getRanking({ rankBy = 'salesAmount', order = 'desc', limit = 20, 
     sharePercent: totalSales > 0 ? parseFloat(((parseFloat(r.sales_amount) / totalSales) * 100).toFixed(2)) : 0,
   }));
 
-  const [[{ total }]] = await pool.execute(
+  const [[{ total }]] = await pool.query(
     `SELECT COUNT(DISTINCT o.product_id) AS total FROM orders o JOIN products p ON o.product_id = p.product_id WHERE o.order_status = 'completed' ${categoryFilter} ${dateFilter}`,
     params
   );

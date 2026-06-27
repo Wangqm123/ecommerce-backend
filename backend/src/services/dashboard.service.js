@@ -8,7 +8,7 @@ async function getKPIs(startDate, endDate) {
     params.push(startDate, endDate);
   }
 
-  const [rows] = await pool.execute(
+  const [rows] = await pool.query(
     `SELECT
       COUNT(DISTINCT order_id) AS totalOrders,
       COUNT(DISTINCT user_id)  AS totalUsers,
@@ -19,7 +19,7 @@ async function getKPIs(startDate, endDate) {
     params
   );
 
-  const [[{ totalProducts }]] = await pool.execute('SELECT COUNT(*) AS totalProducts FROM products');
+  const [[{ totalProducts }]] = await pool.query('SELECT COUNT(*) AS totalProducts FROM products');
 
   // 环比计算：与前一个等长周期比较
   let compare = { salesGrowth: 0, orderGrowth: 0, userGrowth: 0 };
@@ -32,7 +32,7 @@ async function getKPIs(startDate, endDate) {
     const prevEndStr = prevEnd.toISOString().split('T')[0];
     const prevStartStr = prevStart.toISOString().split('T')[0];
 
-    const [prev] = await pool.execute(
+    const [prev] = await pool.query(
       `SELECT
         COUNT(DISTINCT order_id) AS totalOrders,
         COUNT(DISTINCT user_id)  AS totalUsers,
@@ -67,7 +67,7 @@ async function getTrend(startDate, endDate, granularity = 'day') {
     default: format = '%Y-%m-%d'; break;
   }
 
-  const [rows] = await pool.execute(
+  const [rows] = await pool.query(
     `SELECT
       DATE_FORMAT(order_date, ?) AS period,
       SUM(total_amount) AS sales,

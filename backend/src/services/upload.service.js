@@ -7,7 +7,7 @@ const BATCH_SIZE = 500;
 
 async function importCSV(filePath, fileName, fileSize) {
   // 创建导入批次记录
-  const [batchResult] = await pool.execute(
+  const [batchResult] = await pool.query(
     'INSERT INTO import_batches (file_name, file_size, total_rows, status) VALUES (?, ?, 0, ?)',
     [fileName, fileSize, 'processing']
   );
@@ -16,7 +16,7 @@ async function importCSV(filePath, fileName, fileSize) {
   try {
     // 解析 CSV
     const rows = await parseCSV(filePath);
-    await pool.execute('UPDATE import_batches SET total_rows = ? WHERE id = ?', [rows.length, batchId]);
+    await pool.query('UPDATE import_batches SET total_rows = ? WHERE id = ?', [rows.length, batchId]);
 
     // 校验
     const { validRows, errors } = validateRows(rows);
@@ -31,7 +31,7 @@ async function importCSV(filePath, fileName, fileSize) {
     await refreshOrderSummary();
 
     // 更新批次状态
-    await pool.execute(
+    await pool.query(
       'UPDATE import_batches SET status = ?, success_rows = ?, failed_rows = ?, error_log = ? WHERE id = ?',
       ['completed', validRows.length, errors.length, JSON.stringify(errors), batchId]
     );
@@ -46,7 +46,7 @@ async function importCSV(filePath, fileName, fileSize) {
       errors,
     };
   } catch (err) {
-    await pool.execute(
+    await pool.query(
       'UPDATE import_batches SET status = ?, failed_rows = ?, error_log = ? WHERE id = ?',
       ['failed', 0, JSON.stringify([{ row: 0, reason: err.message }]), batchId]
     );
@@ -113,7 +113,7 @@ async function insertBatch(rows) {
 }
 
 async function refreshOrderSummary() {
-  await pool.execute(`
+  await pool.query(`
     INSERT INTO order_summary (order_id, user_id, total_amount, item_count, order_date)
     SELECT o.order_id, MIN(o.user_id), SUM(o.total_amount), COUNT(DISTINCT o.product_id), MIN(o.order_date)
     FROM orders o
@@ -126,8 +126,8 @@ async function refreshOrderSummary() {
 
 async function getHistory(page = 1, pageSize = 20) {
   const offset = (page - 1) * pageSize;
-  const [[{ total }]] = await pool.execute('SELECT COUNT(*) AS total FROM import_batches');
-  const [rows] = await pool.execute(
+  const [[{ total }]] = await pool.query('SELECT COUNT(*) AS total FROM import_batches');
+  const [rows] = await pool.query(
     `SELECT * FROM import_batches ORDER BY imported_at DESC LIMIT ${offset}, ${pageSize}`,
     []
   );
@@ -135,7 +135,7 @@ async function getHistory(page = 1, pageSize = 20) {
 }
 
 async function getBatchDetail(batchId) {
-  const [rows] = await pool.execute('SELECT * FROM import_batches WHERE id = ?', [batchId]);
+  const [rows] = await pool.query('SELECT * FROM import_batches WHERE id = ?', [batchId]);
   return rows[0] || null;
 }
 

@@ -8,7 +8,7 @@ async function getAnalysis(startDate, endDate) {
     params.push(startDate, endDate);
   }
 
-  const [rows] = await pool.execute(
+  const [rows] = await pool.query(
     `SELECT
       u.province,
       SUM(o.total_amount)      AS sales_amount,
@@ -46,7 +46,7 @@ async function getProvinceDetail(province, startDate, endDate) {
     params.push(startDate, endDate);
   }
 
-  const [rows] = await pool.execute(
+  const [rows] = await pool.query(
     `SELECT
       u.city,
       SUM(o.total_amount)      AS sales_amount,

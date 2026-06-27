@@ -3,17 +3,17 @@ const { v4: uuidv4 } = require('uuid');
 
 async function trigger({ startDate, endDate, forecastDays = 30, targetProductIds = [], params = {} }) {
   const batchUuid = uuidv4();
-  await pool.execute(
+  await pool.query(
     'INSERT INTO forecast_tasks (batch_uuid, status, params) VALUES (?, ?, ?)',
     [batchUuid, 'pending', JSON.stringify({ startDate, endDate, forecastDays, targetProductIds, ...params })]
   );
-  const [[task]] = await pool.execute('SELECT * FROM forecast_tasks WHERE batch_uuid = ?', [batchUuid]);
+  const [[task]] = await pool.query('SELECT * FROM forecast_tasks WHERE batch_uuid = ?', [batchUuid]);
   if (task.params) task.params = typeof task.params === 'string' ? JSON.parse(task.params) : task.params;
   return task;
 }
 
 async function getStatus(batchUuid) {
-  const [rows] = await pool.execute('SELECT * FROM forecast_tasks WHERE batch_uuid = ?', [batchUuid]);
+  const [rows] = await pool.query('SELECT * FROM forecast_tasks WHERE batch_uuid = ?', [batchUuid]);
   if (rows.length === 0) return null;
   const task = rows[0];
   if (task.params) task.params = typeof task.params === 'string' ? JSON.parse(task.params) : task.params;
@@ -22,7 +22,7 @@ async function getStatus(batchUuid) {
 
 async function getResult({ batchUuid, productId, page = 1, pageSize = 100 } = {}) {
   if (!batchUuid) {
-    const [latest] = await pool.execute(
+    const [latest] = await pool.query(
       "SELECT batch_uuid FROM forecast_tasks WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 1"
     );
     if (latest.length === 0) return { batchUuid: null, forecasts: [] };
@@ -38,10 +38,10 @@ async function getResult({ batchUuid, productId, page = 1, pageSize = 100 } = {}
   }
 
   const offset = (page - 1) * pageSize;
-  const [[{ total }]] = await pool.execute(
+  const [[{ total }]] = await pool.query(
     `SELECT COUNT(*) AS total FROM forecast_results WHERE compute_batch = ? ${productFilter}`, params
   );
-  const [rows] = await pool.execute(
+  const [rows] = await pool.query(
     `SELECT * FROM forecast_results WHERE compute_batch = ? ${productFilter} ORDER BY product_id, forecast_date LIMIT ${offset}, ${pageSize}`,
     [...params]
   );
@@ -83,7 +83,7 @@ async function getInputData(startDate, endDate, targetProductIds = []) {
     params.push(...targetProductIds);
   }
 
-  const [rows] = await pool.execute(
+  const [rows] = await pool.query(
     `SELECT o.product_id, p.product_name, o.order_date, SUM(o.quantity) AS daily_quantity, SUM(o.total_amount) AS daily_sales
      FROM orders o JOIN products p ON o.product_id = p.product_id
      WHERE o.order_status = 'completed' AND o.order_date BETWEEN ? AND ? ${productFilter}
