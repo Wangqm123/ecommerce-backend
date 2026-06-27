@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # -*- coding: utf-8 -*-
 """
 配置文件 - 数据库连接和算法参数配置
@@ -18,7 +17,7 @@ DB_CONFIG = {
     'port': int(os.getenv('DB_PORT', 3306)),
     'user': os.getenv('DB_USER', 'root'),
     'password': os.getenv('DB_PASSWORD', ''),
-    'database': os.getenv('DB_NAME', 'ecommerce_analysis'),
+    'database': os.getenv('DB_DATABASE', os.getenv('DB_NAME', 'ecommerce_analysis')),  # 优先DB_DATABASE
     'charset': 'utf8mb4'
 }
 
@@ -31,7 +30,7 @@ ALGORITHM_CONFIG = {
     'max_length': 3,             # 规则最大长度（前件+后件）
     
     # 任务轮询配置（从 .env 读取）
-    'poll_interval': int(os.getenv('WORKER_SLEEP_INTERVAL', 5)),  # 轮询间隔（秒）
+    'poll_interval': int(os.getenv('WORKER_SLEEP_INTERVAL', os.getenv('POLL_INTERVAL', 5))),  # 兼容两种变量名
     'max_batch_size': 1000,     # 批量插入数据库的批次大小
     
     # 日志配置
@@ -55,7 +54,7 @@ def validate_config() -> bool:
     if not DB_CONFIG['user']:
         errors.append("数据库用户名(DB_USER)不能为空")
     if not DB_CONFIG['database']:
-        errors.append("数据库名称(DB_NAME)不能为空")
+        errors.append("数据库名称(DB_NAME/DB_DATABASE)不能为空")
     if DB_CONFIG['port'] < 1 or DB_CONFIG['port'] > 65535:
         errors.append(f"数据库端口(DB_PORT)必须在1-65535范围内，当前值: {DB_CONFIG['port']}")
     
@@ -102,21 +101,17 @@ def print_config():
     print(f"  日志级别: {ALGORITHM_CONFIG['log_level']}")
     print(f"  日志文件: {ALGORITHM_CONFIG['log_file']}")
     print("=" * 60)
-=======
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
 
+# 为兼容性提供类接口（若其他代码使用Config类）
 class Config:
-    DB_HOST = os.getenv("DB_HOST", "localhost")
-    DB_PORT = int(os.getenv("DB_PORT", 3306))
-    DB_USER = os.getenv("DB_USER", "root")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-    DB_NAME = os.getenv("DB_NAME", "ecommerce_analysis")
-    WORKER_SLEEP_INTERVAL = int(os.getenv("WORKER_SLEEP_INTERVAL", 10))
+    DB_HOST = DB_CONFIG['host']
+    DB_PORT = DB_CONFIG['port']
+    DB_USER = DB_CONFIG['user']
+    DB_PASSWORD = DB_CONFIG['password']
+    DB_NAME = DB_CONFIG['database']
+    WORKER_SLEEP_INTERVAL = ALGORITHM_CONFIG['poll_interval']
     
     @classmethod
     def get_db_uri(cls):
         return f"mysql+pymysql://{cls.DB_USER}:{cls.DB_PASSWORD}@{cls.DB_HOST}:{cls.DB_PORT}/{cls.DB_NAME}"
->>>>>>> 060a9b060403480af7c8a876efa18fa0af182c05
