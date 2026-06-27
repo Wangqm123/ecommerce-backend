@@ -6,16 +6,13 @@ const routes = require('./routes');
 
 const app = express();
 
-// CORS 配置：允许来自多个来源（以逗号分隔的环境变量 CORS_ORIGIN）
-const corsOptions = {
-  origin: process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-    : '*',
+// CORS 配置（临时测试）
+app.use(cors({
+  origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-};
-app.use(cors(corsOptions));
+}));
 
 // 日志
 app.use(morgan('dev'));
