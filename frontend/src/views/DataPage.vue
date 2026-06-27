@@ -668,7 +668,7 @@ async function triggerAssociation() {
   const task = await handleApiResponse(axios.post('/association/trigger', {
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
-    params: { minSupport: 0.01, minConfidence: 0.3, minLift: 1.0, maxLength: 3 }
+    params: { minSupport: 0.005, minConfidence: 0.3, minLift: 1.0, maxLength: 3 }
   }))
   if (task) {
     pollTaskStatus('/association/status', task.batchUuid, async () => {
