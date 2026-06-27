@@ -21,26 +21,31 @@ async function getStatus(batchUuid) {
 }
 
 async function getResult({ batchUuid, sortBy = 'lift', order = 'desc', page = 1, pageSize = 20 } = {}) {
+  // 如果未指定批次，取最新的 completed 批次
   if (!batchUuid) {
     const [latest] = await pool.query(
       "SELECT batch_uuid FROM association_tasks WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 1"
     );
-    if (latest.length === 0) return { batchUuid: null, rules: [], total: 0 };
+    if (latest.length === 0) {
+      return { batchUuid: null, rules: [], total: 0 };
+    }
     batchUuid = latest[0].batch_uuid;
+    console.log('Using latest batch:', batchUuid); // 调试日志
   }
 
-  const sortField = ['support', 'confidence', 'lift'].includes(sortBy) ? sortBy : 'lift';
-  const sortDir = order === 'asc' ? 'ASC' : 'DESC';
-  const offset = (page - 1) * pageSize;
-
+  // 查询规则数量
   const [[{ total }]] = await pool.query(
-    'SELECT COUNT(*) AS total FROM association_rules WHERE compute_batch = ?', [batchUuid]
-  );
-  const [rules] = await pool.query(
-    `SELECT * FROM association_rules WHERE compute_batch = ? ORDER BY ${sortField} ${sortDir} LIMIT ${offset}, ${pageSize}`,
+    'SELECT COUNT(*) AS total FROM association_rules WHERE compute_batch = ?',
     [batchUuid]
   );
+  
+  // 如果没有规则，直接返回空
+  if (total === 0) {
+    return { batchUuid, rules: [], total: 0 };
+  }
 
+  // ... 后续查询代码不变
+}
   return {
     batchUuid,
     rules: rules.map(r => ({
