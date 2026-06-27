@@ -2,10 +2,12 @@ const mysql = require('mysql2/promise');
 
 let poolConfig = {};
 
-if (process.env.DATABASE_URL) {
-  // 如果使用 Railway 提供的 DATABASE_URL（MySQL 格式：mysql://user:pass@host:port/db）
+// 优先使用 Railway 提供的 MYSQL_URL 或 DATABASE_URL
+const dbUrl = process.env.MYSQL_URL || process.env.DATABASE_URL;
+
+if (dbUrl) {
   poolConfig = {
-    uri: process.env.DATABASE_URL,
+    uri: dbUrl,
     connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
     charset: 'utf8mb4',
     timezone: '+08:00',
@@ -14,7 +16,7 @@ if (process.env.DATABASE_URL) {
     queueLimit: 0,
   };
 } else {
-  // 本地开发环境，使用独立的环境变量
+  // 本地开发使用独立变量
   poolConfig = {
     host: process.env.DB_HOST || '127.0.0.1',
     port: parseInt(process.env.DB_PORT) || 3306,
@@ -31,5 +33,4 @@ if (process.env.DATABASE_URL) {
 }
 
 const pool = mysql.createPool(poolConfig);
-
 module.exports = pool;
