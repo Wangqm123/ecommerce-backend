@@ -18,8 +18,9 @@ async function getStatus(batchUuid) {
   if (task.params) task.params = typeof task.params === 'string' ? JSON.parse(task.params) : task.params;
   return task;
 }
+
 async function getResult({ batchUuid, sortBy = 'lift', order = 'desc', page = 1, pageSize = 20 } = {}) {
-  // 如果未指定批次，从 association_rules 表取最新的 compute_batch
+  // 1. 如果未指定批次，从 association_rules 表获取最新的批次
   if (!batchUuid) {
     const [latest] = await pool.query(
       "SELECT compute_batch FROM association_rules ORDER BY created_at DESC LIMIT 1"
@@ -30,6 +31,7 @@ async function getResult({ batchUuid, sortBy = 'lift', order = 'desc', page = 1,
     batchUuid = latest[0].compute_batch;
   }
 
+  // 2. 查询该批次的规则总数
   const [[{ total }]] = await pool.query(
     'SELECT COUNT(*) AS total FROM association_rules WHERE compute_batch = ?',
     [batchUuid]
@@ -38,6 +40,7 @@ async function getResult({ batchUuid, sortBy = 'lift', order = 'desc', page = 1,
     return { batchUuid, rules: [], total: 0 };
   }
 
+  // 3. 分页排序查询
   const sortField = ['support', 'confidence', 'lift'].includes(sortBy) ? sortBy : 'lift';
   const sortDir = order === 'asc' ? 'ASC' : 'DESC';
   const offset = (page - 1) * pageSize;
@@ -68,8 +71,12 @@ async function getResult({ batchUuid, sortBy = 'lift', order = 'desc', page = 1,
 
 async function recommend(productId, { batchUuid, topN = 10 } = {}) {
   if (!batchUuid) {
-    // 原版本：若未指定批次，则返回空数组（不自动查找最新批次）
-    return [];
+    // 自动取最新批次
+    const [latest] = await pool.query(
+      "SELECT compute_batch FROM association_rules ORDER BY created_at DESC LIMIT 1"
+    );
+    if (latest.length === 0) return [];
+    batchUuid = latest[0].compute_batch;
   }
 
   const [rules] = await pool.query(
