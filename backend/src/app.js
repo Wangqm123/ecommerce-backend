@@ -5,6 +5,10 @@ const errorHandler = require('./middleware/errorHandler');
 const routes = require('./routes');
 
 const app = express();
+// 健康检查（放在最前面，确保快速响应）
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
 
 // ========== 强制 CORS 中间件（放在最前面） ==========
 app.use((req, res, next) => {
@@ -41,11 +45,6 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // 路由
 app.use('/api', routes);
-
-// 健康检查
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
-});
 
 // 全局错误处理
 app.use(errorHandler);
