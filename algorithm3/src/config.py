@@ -12,12 +12,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # MySQL 数据库配置（优先从 .env 读取）
+# 优先使用 DB_DATABASE，若未设置则回退到 DB_NAME（兼容旧版）
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
     'port': int(os.getenv('DB_PORT', 3306)),
     'user': os.getenv('DB_USER', 'root'),
     'password': os.getenv('DB_PASSWORD', ''),
-    'database': os.getenv('DB_DATABASE', os.getenv('DB_NAME', 'ecommerce_analysis')),  # 优先DB_DATABASE
+    'database': os.getenv('DB_DATABASE', os.getenv('DB_NAME', 'ecommerce_analysis')),
     'charset': 'utf8mb4'
 }
 
@@ -30,7 +31,7 @@ ALGORITHM_CONFIG = {
     'max_length': 3,             # 规则最大长度（前件+后件）
     
     # 任务轮询配置（从 .env 读取）
-    'poll_interval': int(os.getenv('WORKER_SLEEP_INTERVAL', os.getenv('POLL_INTERVAL', 5))),  # 兼容两种变量名
+    'poll_interval': int(os.getenv('WORKER_SLEEP_INTERVAL', os.getenv('POLL_INTERVAL', 5))),
     'max_batch_size': 1000,     # 批量插入数据库的批次大小
     
     # 日志配置
@@ -103,7 +104,7 @@ def print_config():
     print("=" * 60)
 
 
-# 为兼容性提供类接口（若其他代码使用Config类）
+# 为兼容其他模块可能使用的 Config 类（如 src/main.py 可能使用）
 class Config:
     DB_HOST = DB_CONFIG['host']
     DB_PORT = DB_CONFIG['port']
